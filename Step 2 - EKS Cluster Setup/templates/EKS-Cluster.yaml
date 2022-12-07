@@ -1,0 +1,160 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ' Create Private EKS Cluster'
+
+Mappings:
+  ServicePrincipals:
+    aws-cn:
+      ec2: ec2.amazonaws.com.cn
+    aws:
+      ec2: ec2.amazonaws.com
+
+Metadata:
+  "AWS::CloudFormation::Interface":
+    ParameterGroups:
+      - Label:
+          default: EKS Cluster Parameters
+        Parameters:
+          - ClusterName
+          - K8sVersion
+      
+
+Parameters:
+
+  InfraEKSName:
+    Description: Cfn stack name for EKS-Infra template
+    Type: String
+    Default: ''
+
+  K8sVersion:
+    Description: Kubernetes Version
+    Type: String
+    Default: 1.24
+
+  EndpointPublicAccess:
+    Type: String
+    Description: If you want your EKS cluster endpoint to be Public. 
+    Default: false
+
+  EndpointPrivateAccess:
+    Type: String
+    Description: If you want your EKS cluster endpoint to be Private. kubectl commands can only be executed from inside the VPC or connected network. Extra bootstrap argument needed during Nodegroup creation
+    Default: true
+
+
+Transform:
+  - Count
+
+Resources:
+
+  #############################################################################
+  # EKS cluster
+  #############################################################################
+  EksIamRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - eks.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      RoleName: !Sub "eksIamRole-${AWS::StackName}"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+        - arn:aws:iam::aws:policy/AmazonEKSServicePolicy
+   
+  EksCluster:
+    Type: 'AWS::EKS::Cluster'
+    Count: 2
+    Properties:
+      Name: !Sub "${AWS::StackName}-%d"
+      Version: !Ref K8sVersion
+      RoleArn: {"Fn::GetAtt" : ["EksIamRole", "Arn"] }
+      ResourcesVpcConfig:
+        SecurityGroupIds:
+          - !Ref EksControlPlaneSecurityGroup
+        SubnetIds: !Split [',', Fn::ImportValue: !Sub "${InfraEKSName}-EKSClusterSubnets"]
+        EndpointPublicAccess: !Ref EndpointPublicAccess
+        EndpointPrivateAccess: !Ref EndpointPrivateAccess
+
+      Logging:
+        ClusterLogging:
+          EnabledTypes:
+            - Type: api
+            - Type: audit
+            - Type: authenticator
+
+  EksControlPlaneSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Cluster communication with worker nodes
+      VpcId:
+        Fn::ImportValue:
+          !Sub "${InfraEKSName}-VpcId"
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-EksControlPlaneSecurityGroup"
+
+  EksControlPlaneSecurityGroupIngress:
+    Type: "AWS::EC2::SecurityGroupIngress"
+    Properties:
+      Description: Allow pods to communicate with the cluster API Server
+      #CidrIp: 0.0.0.0/0
+      CidrIp:
+        Fn::ImportValue:
+          !Sub "${InfraEKSName}-VpcCidr"
+      GroupId: !Ref EksControlPlaneSecurityGroup
+      FromPort: 443
+      IpProtocol: tcp
+      ToPort: 443
+
+  EksControlPlaneSecurityGroupIngressVpcCidr2:
+    Type: "AWS::EC2::SecurityGroupIngress"
+    Properties:
+      Description: Allow pods to communicate with the cluster API Server
+      CidrIp:
+        Fn::ImportValue:
+          !Sub "${InfraEKSName}-VpcCidr2"
+      GroupId: !Ref EksControlPlaneSecurityGroup
+      FromPort: 443
+      IpProtocol: tcp
+      ToPort: 443
+
+  EksControlPlaneSecurityGroupIngressMngmtVPC:
+    Type: "AWS::EC2::SecurityGroupIngress"
+    Properties:
+      Description: Allow Bastion to communicate with the cluster API Server
+      #CidrIp: 0.0.0.0/0
+      CidrIp:
+        Fn::ImportValue:
+          !Sub "${InfraEKSName}-VpcCidr3"
+      GroupId: !Ref EksControlPlaneSecurityGroup
+      FromPort: 443
+      IpProtocol: tcp
+      ToPort: 443
+
+
+Outputs:
+
+  K8sVersion:
+    Description: Kubernetes Version
+    Value: !Ref K8sVersion
+    Export:
+      Name: !Sub "${AWS::StackName}-K8sVersion"
+
+
+  RoleArn:
+    Description: The role that Amazon EKS will use to create AWS resources for Kubernetes clusters
+    Value: !GetAtt EksIamRole.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-RoleArn"
+
+  EksControlPlaneSecurityGroupId:
+    Description: EKS control plane security group Id
+    Value: !Ref EksControlPlaneSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-EksControlPlaneSecurityGroup"

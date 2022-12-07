@@ -1,0 +1,47 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: AMP Workspace Creation
+
+
+Metadata:
+  "AWS::CloudFormation::Interface":
+    ParameterGroups:
+      - Label:
+          default: Amazon Managed Service for Prometheus
+        Parameters:
+          - WorkspaceAlias
+      - Label:
+          default: VPC Interface Endpoint
+        Parameters:
+          - VpcId
+          - Subnets
+          
+Parameters:
+
+  WorkspaceAlias:
+    Description: Workspace alias must be between 1 and 100 characters.
+    Type: String
+    Default: eks-amp
+
+  VpcId:
+    Type: "AWS::EC2::VPC::Id"
+    Description: Infra VPC (EKS)
+
+  Subnets:
+    Type: "List<AWS::EC2::Subnet::Id>"
+    Description: Primary VPC Subnet for the worker nodes
+
+
+Resources:
+  APSWorkspace:
+    Type: AWS::APS::Workspace
+    Properties:
+      Alias: !Ref WorkspaceAlias
+
+  cwlInterfaceEndpoint:
+    Type: 'AWS::EC2::VPCEndpoint'
+    Properties:
+      VpcEndpointType: Interface
+      ServiceName: com.amazonaws.us-east-1.aps-workspaces
+      VpcId: !Ref VpcId
+      SubnetIds: !Ref Subnets
