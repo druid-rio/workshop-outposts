@@ -21,7 +21,6 @@ The CloudFormation artifacts enable to create VPC environment including public a
 
 ## AWS Cloudformation Deployment Flow
 
-
 ![Deployment-flow.jpg](./images/Deployment-flow.jpg)
 
 ## Target Architecture
@@ -31,13 +30,12 @@ The CloudFormation artifacts enable to create VPC environment including public a
 
 ## Step-by-Step Deployments
 
-* **[Step 1](https://gitlab.aws.dev/sinunes/eks-automation-deployment/-/blob/main/Step%201%20-%20Infrastructure%20Setup/README-Part1.md)**: Provision EKS Infrastructure and Bastion Host
+* **[Step 1](https://github.com/druid-rio/workshop-outposts/blob/master/Step%201%20-%20Infrastructure%20Setup/README-Part1.md)**: Provision EKS Infrastructure and Bastion Host
 
-* **[Step 2](https://gitlab.aws.dev/sinunes/eks-automation-deployment/-/blob/main/Step%202%20-%20EKS%20Cluster%20Setup/README-Part2.md)**: Provision EKS Clusters and Self Managed Nodegroups
+* **[Step 2](https://github.com/druid-rio/workshop-outposts/blob/master/Step%202%20-%20EKS%20Cluster%20Setup/README-Part2.md)**: Provision EKS Clusters and Self Managed Nodegroups
  
-* **[Step 3](https://gitlab.aws.dev/sinunes/eks-automation-deployment/-/blob/main/Step%203%20-%20Multus%20and%20App%20Creation/README-Part3.md)**: Configure Multus and Deploy Sample Application
+* **[Step 3](https://github.com/druid-rio/workshop-outposts/blob/master/Step%203%20-%20Multus%20and%20App%20Creation/README-Part3.md)**: Configure Multus and Deploy Sample Application
 
-* **[Step 4](https://gitlab.aws.dev/sinunes/eks-automation-deployment/-/blob/main/Step%204%20-%20Observability/README-Part4.md)**: Monitoring AWS EKS using Amazon Managed Service for Prometheus and Grafana
+* **[Step 4](https://github.com/druid-rio/workshop-outposts/blob/master/Step%204%20-%20Observability/README-Part4.md)**: Monitoring AWS EKS using Amazon Managed Service for Prometheus and Grafana
 
-* **[Step 5](https://gitlab.aws.dev/sinunes/eks-automation-deployment/-/blob/main/Step%205%20-%20AWS%20Outposts/README.md)**: Deploy EKS worker nodes on AWS Outposts
  
