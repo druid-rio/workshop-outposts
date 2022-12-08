@@ -27,7 +27,6 @@ The CloudFormation artifacts enable to create VPC environment including public a
 
 ![target-architecture.jpg](./images/target-architecture.jpg)
 
-
 ## Step-by-Step Deployments
 
 * **[Step 1](https://github.com/druid-rio/workshop-outposts/blob/master/Step%201%20-%20Infrastructure%20Setup/README-Part1.md)**: Provision EKS Infrastructure and Bastion Host
@@ -39,3 +38,14 @@ The CloudFormation artifacts enable to create VPC environment including public a
 * **[Step 4](https://github.com/druid-rio/workshop-outposts/blob/master/Step%204%20-%20Observability/README-Part4.md)**: Monitoring AWS EKS using Amazon Managed Service for Prometheus and Grafana
 
  
+## Please keep in mind..
+* You only have to use 'us-east-1' (Virgina) Region not the one closest to you.
+
+## Log in to AWS Event Engine 
+* https://dashboard.eventengine.run/dashboard.
+* Please put Event Hash (will be given at the session from your instructor). 
+* Click "SSH key" 
+    * Download **ee-default-keypair** to your PC (just in case, copy key material to notepad as well).
+* Click "AWS Console"
+    * Copy credentials (export AWS_DEFAULT_REGION=..) 
+    * Click "Open AWS Console".
