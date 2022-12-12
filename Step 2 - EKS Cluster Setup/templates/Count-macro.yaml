@@ -13,7 +13,7 @@ Resources:
   CountMacroFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: s3://cfn-macro-template/c6bcffd28b44b4f43ba5a0127047489c
+      CodeUri: s3://count-cloudformation-macro-5675/c6bcffd28b44b4f43ba5a0127047489c
       Handler: index.handler
       Runtime: python3.7
       Timeout: 5

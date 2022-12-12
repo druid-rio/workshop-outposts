@@ -584,7 +584,10 @@ Resources:
 # Subnet Route Table for Management Subnets
   MgmtSubnetRt:
     DependsOn:
-      - TransitGateway
+      - BastionVPC
+      - MgmtSubnetAz1
+      - MgmtSubnetAz2
+      - MgmtVPCTGWAttachment 
     Type: 'AWS::EC2::RouteTable'
     Properties:
       VpcId: !Ref BastionVPC

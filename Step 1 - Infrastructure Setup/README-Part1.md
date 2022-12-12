@@ -78,10 +78,11 @@ https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/create-key-pairs.html
 * The multus subnets will not have outbound or inbound internet access. Only private communication inside the VPC is allowed
 * VPC endpoints to privately connect the stage account VPC to public AWS Services
 
-### Create a static route 
+### Create the static routes
 
 To complete the infrastructure configuration setup, we will create a static route to allow outbound Internet connectivity from the primary and management subnets in the Stage account.
 
+* Step 1:
     * Go to the AWS Management Console.
     * On the navigation pane, go to the VPC dashboard and choose Transit Gateway Route Tables.
     * Select the route table for which to create a route.
@@ -89,6 +90,17 @@ To complete the infrastructure configuration setup, we will create a static rout
     * On the Create static route page, enter with the destination set to 0.0.0.0/0, and then choose Active.
     * Choose the Workload-VPC-Attachment
     * Choose Create static route.
+
+* Step 2:
+    * On the navigation pane, go to the VPC dashboard and choose Route Tables.
+    * Select the PublicSubnet route table for which to create a route.
+    * Choose Routes and then Edit Routes.
+    * Choose Add Route.
+    * Enter with the destination set to 10.10.0.0/16 (Management VPC CIDR), and choose the Workload-VPC-Attachment as the target
+    * Choose Save Changes.
+    * Repeat the same steps for the PrimaryAZ1 and PrimaryAZ2 subnets.
+
+
 
 ![Routing.jpg](./images/Routing.jpg)
 

@@ -106,6 +106,7 @@ Output:
 
 ````
     curl https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 > get_helm.sh
+    export PATH=$PATH:/usr/local/sbin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin:/root/bin:/usr/local/sbin:/usr/local/bin/helm:/usr/local/bin:/usr/local/sbin
     chmod 700 get_helm.sh
     ./get_helm.sh
     sudo yum install git -y
@@ -120,36 +121,32 @@ Output:
 
 
 ````
-    aws eks update-kubeconfig --name=my-eks-cluster
+aws eks update-kubeconfig --name=eks-cluster-1
+aws eks update-kubeconfig --name=eks-cluster-2
 ````
 
 * Test EKS Control plane access
 
 ````
-    kubectl get svc
-    NAME         TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
-    kubernetes   ClusterIP   172.20.0.1   <none>        443/TCP   31m
-````   
+kubectl get svc
+````  
+
 * Verify it from AWS CLI
 
 ````
-aws eks describe-cluster --name=my-eks-cluster
+aws eks describe-cluster --name=eks-cluster-1
 ````
 
 * In case of multiple EKS clusters, the kubeconfig file will be configured with multiple contexts, one per cluster
 
 ````
 kubectl config get-contexts
-
-CURRENT   NAME                                             CLUSTER                                                    AUTHINFO                                                   
-* arn:aws:eks:us-east-1:949500376971:cluster/eks-cluster-1   arn:aws:eks:us-east-1:949500376971:cluster/eks-cluster-1   arn:aws:eks:us-east-1:949500376971:cluster/eks-cluster-1
-  arn:aws:eks:us-east-1:949500376971:cluster/eks-cluster-2   arn:aws:eks:us-east-1:949500376971:cluster/eks-cluster-2   arn:aws:eks:us-east-1:949500376971:cluster/eks-cluster-2
-````
+````                    
 
 * You can quickly switch between clusters by using the kubectl config use-context:
 
 ````
-kubectl config use-context my-eks-cluster
+kubectl config use-context eks-cluster-2
 ````
 
 
