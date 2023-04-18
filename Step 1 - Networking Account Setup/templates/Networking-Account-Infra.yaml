@@ -1,0 +1,515 @@
+
+AWSTemplateFormatVersion: '2010-09-09'
+
+
+Transform: AWS::Serverless-2016-10-31
+
+Description: A new VPC creation for Networking Account LandingZone. This creates VPC, public/private subnets, IGW, NAT GW, TGW and subnet route tables ans Security Groups
+
+Metadata:
+  "AWS::CloudFormation::Interface":
+    ParameterGroups:
+      - Label:
+          default: VPC Configuration
+        Parameters:
+          - VpcCidr
+          - AvailabilityZones
+          - PublicAz1
+          - PublicAz2
+          - PrivateAz1
+          - PrivateAz2
+      - Label:
+          default: AWS RAM Sharing
+        Parameters:
+          - Principals
+      - Label:
+          default: Management VPC Cidr
+        Parameters:
+          - BastionVPC
+      - Label:
+          default: EKS Private Subnet Configuration
+        Parameters:
+          - EKSPrimaryNodeSubnet
+
+
+Parameters:
+  Principals:
+    Description:  Sharing the transit gateway with the following AWS account IDs
+    Type: CommaDelimitedList
+    
+  AvailabilityZones:
+    Description: List of Availability Zones to use for the subnets in the VPC. Select 2 of them.
+    Type: List<AWS::EC2::AvailabilityZone::Name>
+    
+  VpcCidr:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16–28
+    Default: 192.168.100.0/24
+    Description: Internal CIDR range for the VPC.
+    Type: String
+
+  EnableIPv6:
+    Type: String
+    Default: true
+    Description: Enable dual stack for this VPC (true or false).
+
+  PublicAz1:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16–28
+    Default: 192.168.100.0/27
+    Description: CIDR block for the Public Subnet in AZ1. 
+    Type: String
+
+  PublicAz2:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16–28
+    Default: 192.168.100.32/27
+    Description: CIDR block for the Public Subnet in AZ2. 
+    Type: String
+
+  PrivateAz1:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16–28
+    Default: 192.168.100.64/27
+    Description: CIDR block for the Private Subnet in AZ1. 
+    Type: String
+
+  PrivateAz2:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16–28
+    Default: 192.168.100.96/27
+    Description: CIDR block for the Private Subnet in AZ1. 
+    Type: String
+
+  BastionVPC:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16–28
+    Default: 10.10.0.0/16
+    Description: CIDR range for the Bastion VPC.
+    Type: String
+
+  EKSPrimaryNodeSubnet:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16–28
+    Default: 172.20.0.0/16
+    Description: CIDR block for the EKS Private Subnet. This subnet will be associated to the worker node primary eth0
+    Type: String
+
+Conditions:
+  # Condition to enable IPv6
+  IncludeIPv6: !Equals
+    - Ref: EnableIPv6
+    - "true"
+
+Resources:
+ # Create VPC with 2 CIDRs
+  Vpc:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub "vpc-${AWS::StackName}"
+
+
+  # Create wait condition
+  VPCReady:
+    Type: AWS::CloudFormation::WaitConditionHandle
+    Metadata:
+      Ipv6CidrReady: !If [ IncludeIPv6, !Ref IPv6CidrBlock, "" ]
+
+  #Create AWS IPv6 block and attach to VPC
+  IPv6CidrBlock:
+    Condition: IncludeIPv6
+    Type: AWS::EC2::VPCCidrBlock
+    Properties:
+      AmazonProvidedIpv6CidrBlock: true
+      VpcId: !Ref Vpc
+
+
+  # Create Public Subnets
+  PublicSubnetAz1:
+    DependsOn:
+      - VPCReady
+    Type: 'AWS::EC2::Subnet'
+    Metadata:
+      Comment: Public subnet in AZ1
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PublicAz1
+      AvailabilityZone: !Select ['0', !Ref AvailabilityZones]
+      AssignIpv6AddressOnCreation: true
+      Ipv6CidrBlock: !If
+        - IncludeIPv6
+        - !Select [10, !Cidr [!Select [0, !GetAtt Vpc.Ipv6CidrBlocks], 16, 64]]     
+        - !Ref AWS::NoValue  
+      Tags:
+        - Key: Name
+          Value: !Sub "publicAz1-${AWS::StackName}"
+  PublicSubnetAz2:
+    DependsOn:
+      - VPCReady
+    Type: 'AWS::EC2::Subnet'
+    Metadata:
+      Comment: Public subnet in AZ2
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PublicAz2
+      AvailabilityZone: !Select ['1', !Ref AvailabilityZones]
+      AssignIpv6AddressOnCreation: true
+      Ipv6CidrBlock: !If
+        - IncludeIPv6
+        - !Select [9, !Cidr [!Select [0, !GetAtt Vpc.Ipv6CidrBlocks], 16, 64]]     
+        - !Ref AWS::NoValue      
+      Tags:
+        - Key: Name
+          Value: !Sub "publicAz2-${AWS::StackName}"
+
+  # Create Private Subnets
+  PrivateSubnetAz1:
+    DependsOn:
+      - VPCReady
+    Type: 'AWS::EC2::Subnet'
+    Metadata:
+      Comment: Private subnet in AZ1
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PrivateAz1
+      AvailabilityZone: !Select ['0', !Ref AvailabilityZones]
+      Ipv6CidrBlock: !If
+        - IncludeIPv6
+        - !Select [8, !Cidr [!Select [0, !GetAtt Vpc.Ipv6CidrBlocks], 16, 64]]     
+        - !Ref AWS::NoValue   
+      Tags:
+        - Key: Name
+          Value: !Sub "privateAz1-${AWS::StackName}"
+  PrivateSubnetAz2:
+    DependsOn:
+      - VPCReady
+    Type: 'AWS::EC2::Subnet'
+    Metadata:
+      Comment: Private subnet in AZ2
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PrivateAz2
+      AvailabilityZone: !Select ['1', !Ref AvailabilityZones]
+      Ipv6CidrBlock: !If
+        - IncludeIPv6
+        - !Select [7, !Cidr [!Select [0, !GetAtt Vpc.Ipv6CidrBlocks], 16, 64]]     
+        - !Ref AWS::NoValue  
+      Tags:
+        - Key: Name
+          Value: !Sub "privateAz2-${AWS::StackName}"
+
+  # IGW for the VPC
+  VpcIgw:
+    Type: 'AWS::EC2::InternetGateway'
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "igw-${AWS::StackName}"
+  VpcIgwAttach:
+    DependsOn:
+      - VpcIgw
+      - Vpc
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref VpcIgw
+
+  
+  # NATGWs for the VPC
+  EipNatGwAz1:
+    Type: 'AWS::EC2::EIP'
+    Properties:
+      Domain: Vpc
+  NatGatewayAz1:
+    DependsOn:
+      - Vpc
+      - PublicSubnetAz1
+    Type: 'AWS::EC2::NatGateway'
+    Properties:
+      AllocationId: !GetAtt 'EipNatGwAz1.AllocationId'
+      SubnetId: !Ref PublicSubnetAz1
+      Tags:
+        - Key: Name
+          Value: !Sub "natGwAz1-${AWS::StackName}"
+  EipNatGwAz2:
+    Type: 'AWS::EC2::EIP'
+    Properties:
+      Domain: Vpc
+  NatGatewayAz2:
+    DependsOn:
+      - Vpc
+      - PublicSubnetAz2
+    Type: 'AWS::EC2::NatGateway'
+    Properties:
+      AllocationId: !GetAtt 'EipNatGwAz2.AllocationId'
+      SubnetId: !Ref PublicSubnetAz2
+      Tags:
+        - Key: Name
+          Value: !Sub "natGwAz2-${AWS::StackName}"
+
+  # Create Transit Gateway
+  TransitGateway:
+    Type: "AWS::EC2::TransitGateway"
+    Properties:
+      AmazonSideAsn: 65000
+      Description: "Transit Gateway"
+      AutoAcceptSharedAttachments: "enable"
+      DefaultRouteTableAssociation: "enable"
+      DnsSupport: "enable"
+      VpnEcmpSupport: "enable"
+      Tags:
+        - Key: Application
+          Value: TransitGateway
+
+  # Shared Transit Gateway for the Organization#
+  TransitGatewayResourceshare:
+    DependsOn: 
+      - TransitGateway
+    Type: "AWS::RAM::ResourceShare"
+    Properties:
+      Name: "Transit Gateway Resource Share"
+      ResourceArns:
+        - !Join
+          - ''
+          - - !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:transit-gateway/'
+            - !Ref TransitGateway
+      Principals: !Ref Principals
+      Tags:
+        - Key: Application
+          Value: TransitGatewayResourceshare
+
+ # Create the Transit Gateway VPC Attachment#
+  VPCTGWAttachment:
+    DependsOn:
+      - PrivateSubnetAz1
+      - PrivateSubnetAz2
+      - PublicSubnetAz1
+      - PublicSubnetAz2
+      - TransitGateway
+    Type: 'AWS::EC2::TransitGatewayAttachment'
+    Properties:
+      SubnetIds:
+        - !Ref PrivateSubnetAz1
+        - !Ref PublicSubnetAz2
+      TransitGatewayId: !Ref TransitGateway
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Join 
+            - ''
+            - - VPCAttachment-
+              - !Ref VpcCidr
+
+
+
+
+
+
+  # Subnet Route Table for Private Subnets
+  PrivateAz1SubnetRt:
+    DependsOn:
+      - Vpc
+      - PrivateSubnetAz1
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "privateAz1SubnetRt-${AWS::StackName}"
+  PrivateAz2SubnetRt:
+    DependsOn:
+      - Vpc
+      - PrivateSubnetAz2
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "privateAz2SubnetRt-${AWS::StackName}"
+  PrivateAz1DfltRt:
+    DependsOn:
+      - Vpc
+      - PrivateSubnetAz1
+      - NatGatewayAz1
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref PrivateAz1SubnetRt
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayAz1
+  PrivateAz2DfltRt:
+    DependsOn:
+      - Vpc
+      - PrivateSubnetAz2
+      - NatGatewayAz2
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref PrivateAz2SubnetRt
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayAz2
+  PrivateAz1RtAssoc:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref PrivateSubnetAz1
+      RouteTableId: !Ref PrivateAz1SubnetRt
+  PrivateAz2RtAssoc:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref PrivateSubnetAz2
+      RouteTableId: !Ref PrivateAz2SubnetRt
+
+  # Subnet Route Table for Public Subnets
+  PublicSubnetRt:
+    DependsOn:
+      - Vpc
+      - VpcIgw
+      - PublicSubnetAz1
+      - PublicSubnetAz2
+      - TransitGateway
+      - VPCTGWAttachment
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "publicSubnetRt-${AWS::StackName}"
+
+  PublicRtDfltRt:
+    DependsOn:
+      - Vpc
+      - PublicSubnetAz2
+      - VpcIgw
+      - VpcIgwAttach
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref PublicSubnetRt
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref VpcIgw
+
+  PublicRtDfltRt1:
+    DependsOn:
+      - Vpc
+      - PublicSubnetAz1
+      - PublicSubnetAz2
+      - TransitGateway
+      - VPCTGWAttachment
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref PublicSubnetRt
+      DestinationCidrBlock: !Ref BastionVPC
+      TransitGatewayId: !Ref TransitGateway
+
+
+  PublicRtDfltRt2:
+    DependsOn:
+      - Vpc
+      - PublicSubnetAz1
+      - PublicSubnetAz2
+      - TransitGateway
+      - VPCTGWAttachment
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref PublicSubnetRt
+      DestinationCidrBlock: !Ref EKSPrimaryNodeSubnet
+      TransitGatewayId: !Ref TransitGateway
+
+
+  PublicAz1RtAssoc:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref PublicSubnetAz1
+      RouteTableId: !Ref PublicSubnetRt
+  PublicAz2RtAssoc:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref PublicSubnetAz2
+      RouteTableId: !Ref PublicSubnetRt
+
+
+
+
+
+
+# Security group for private subnet
+  SubnetSecurityGroup:
+    DependsOn:
+      - VPCReady
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: Private subnet security group
+      GroupDescription: Allows VPC traffic
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - CidrIp: !Ref VpcCidr
+          IpProtocol: -1
+          FromPort: 0
+          ToPort: 65535
+        - !If
+          - IncludeIPv6
+          - CidrIpv6: !Select [ 0, !GetAtt Vpc.Ipv6CidrBlocks ]
+            IpProtocol: -1
+            FromPort: 0
+            ToPort: 65535
+          - !Ref AWS::NoValue
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-PrivateSubnetSecurityGroup"
+
+
+Outputs:
+  VpcId:
+    Description: VPC ID
+    Value: !Ref Vpc
+    Export:
+      Name: !Sub "${AWS::StackName}-VpcId"
+  VpcCidr:
+    Description: VPC CIDR
+    Value: !GetAtt Vpc.CidrBlock
+    Export:
+      Name: !Sub "${AWS::StackName}-VpcCidr"
+  VpcIpv6Cidr:
+    Description: The VPC IPv6 CIDR
+    Value: !Join [ ",", !GetAtt Vpc.Ipv6CidrBlocks ]
+    Export:
+      Name: !Sub "${AWS::StackName}-VpcIpv6Cidr"
+    Condition: IncludeIPv6
+  PrivateSubnetAz1:
+    Description: Private Subnet at AZ1.
+    Value: !Ref PrivateSubnetAz1
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnetAz1"
+  PrivateSubnetAz2:
+    Description: Private Subnet at AZ2.
+    Value: !Ref PrivateSubnetAz2
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnetAz2"
+  PublicSubnetAz1:
+    Description: Public Subnet at AZ1.
+    Value: !Ref PublicSubnetAz1
+    Export:
+      Name: !Sub "${AWS::StackName}-PublicSubnetAz1"
+  PublicSubnetAz2:
+    Description: Public Subnet at AZ2.
+    Value: !Ref PublicSubnetAz2
+    Export:
+      Name: !Sub "${AWS::StackName}-PublicSubnetAz2"
+  TransitGatewayId:
+    Description: 'Transit Gateway Id.'
+    Value: !Ref TransitGateway
+    Export:
+      Name: !Sub "${AWS::StackName}-TransitGateway"
+  TransitGatewayResourceshareId:
+    Description: 'Transit Gateway Resource Share Id.'
+    Value: !Ref TransitGatewayResourceshare
+    Export:
+      Name: !Sub "${AWS::StackName}-transitGatewayResourceshareId"
+  VPCTransitGatewayAttachment:
+    Value: !Ref VPCTGWAttachment
+    Description: VPC Transit Gateway Attachment id
+    Export:
+      Name: !Sub "${AWS::StackName}-TransitGatewayAttachment"
+ 

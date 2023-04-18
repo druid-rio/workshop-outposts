@@ -42,6 +42,6 @@ Resources:
     Type: 'AWS::EC2::VPCEndpoint'
     Properties:
       VpcEndpointType: Interface
-      ServiceName: com.amazonaws.us-east-1.aps-workspaces
+      ServiceName: com.amazonaws.sa-east-1.aps-workspaces
       VpcId: !Ref VpcId
       SubnetIds: !Ref Subnets

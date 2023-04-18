@@ -136,10 +136,10 @@ EOF
 * Run below commands at Bastion host (where you created a docker image). 
 
 ````
-aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin xxxxxxxxx.dkr.ecr.us-east-1.amazonaws.com
+aws ecr get-login-password --region sa-east-1 | docker login --username AWS --password-stdin xxxxxxxxx.dkr.ecr.sa-east-1.amazonaws.com
 docker build -t my-docker-image .
-docker tag my-docker-image:latest xxxxxxxxx.dkr.ecr.us-east-1.amazonaws.com/my-docker-image:latest
-docker push xxxxxxxxx.dkr.ecr.us-east-1.amazonaws.com/my-docker-image:latest
+docker tag my-docker-image:latest xxxxxxxxx.dkr.ecr.sa-east-1.amazonaws.com/my-docker-image:latest
+docker push xxxxxxxxx.dkr.ecr.sa-east-1.amazonaws.com/my-docker-image:latest
 ````
 *keep in mind that, use your account number in place of xxxxxxxxx and Image ID of your docker (you can retrieve all information from above docker images command and from AWS ECR console)*
 
@@ -167,7 +167,7 @@ spec:
   containers:
   - name: sampleapp
     command: ["/bin/bash", "-c", "trap : TERM INT; sleep infinity & wait"]
-    image: xxxxxxxxx.dkr.ecr.us-east-1.amazonaws.com/my-docker-image:latest
+    image: xxxxxxxxx.dkr.ecr.sa-east-1.amazonaws.com/my-docker-image:latest
 EOF
 ````
 
@@ -229,7 +229,7 @@ spec:
   containers:
   - name: sampleapp-dual
     command: ["/bin/bash", "-c", "trap : TERM INT; sleep infinity & wait"]
-    image: xxxxxxxxx.dkr.ecr.us-east-1.amazonaws.com/my-docker-image:latest
+    image: xxxxxxxxx.dkr.ecr.sa-east-1.amazonaws.com/my-docker-image:latest
 EOF
 ````
 
@@ -329,10 +329,10 @@ git clone https://github.com/aws-samples/eks-automated-ipmgmt-multus-pods
 
 ````
 cd eks-automated-ipmgmt-multus-pods/code/
-aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin xxxxxxxxx.dkr.ecr.us-east-1.amazonaws.com
+aws ecr get-login-password --region sa-east-1 | docker login --username AWS --password-stdin xxxxxxxxx.dkr.ecr.sa-east-1.amazonaws.com
 docker build -t aws-ip-manager .
-docker tag aws-ip-manager:latest xxxxxxxxx.dkr.ecr.us-east-1.amazonaws.com/aws-ip-manager:latest
-docker push xxxxxxxxx.dkr.ecr.us-east-1.amazonaws.com/aws-ip-manager:latest
+docker tag aws-ip-manager:latest xxxxxxxxx.dkr.ecr.sa-east-1.amazonaws.com/aws-ip-manager:latest
+docker push xxxxxxxxx.dkr.ecr.sa-east-1.amazonaws.com/aws-ip-manager:latest
 ````
 *keep in mind that, use your account number in place of xxxxxxxxx and Image ID of your docker (you can retrieve all information from above docker images command and from AWS ECR console)*
 
@@ -358,10 +358,10 @@ spec:
   containers:
   - name: sampleapp
     command: ["/bin/bash", "-c", "trap : TERM INT; sleep infinity & wait"]
-    image: xxxxxxxxx.dkr.ecr.us-east-1.amazonaws.com/my-docker-image:latest
+    image: xxxxxxxxx.dkr.ecr.sa-east-1.amazonaws.com/my-docker-image:latest
   initContainers:
   - name: aws-ip-mgmt
-    image: xxxxxxxxx.dkr.ecr.us-east-1.amazonaws.com/aws-ip-manager:latest
+    image: xxxxxxxxx.dkr.ecr.sa-east-1.amazonaws.com/aws-ip-manager:latest
     imagePullPolicy: IfNotPresent
     args: [/bin/sh, -c, '/app/script.sh initContainers']
 EOF
@@ -394,10 +394,10 @@ spec:
   containers:
   - name: sampleapp-dual
     command: ["/bin/bash", "-c", "trap : TERM INT; sleep infinity & wait"]
-    image: xxxxxxxxx.dkr.ecr.us-east-1.amazonaws.com/my-docker-image:latest
+    image: xxxxxxxxx.dkr.ecr.sa-east-1.amazonaws.com/my-docker-image:latest
   initContainers:
   - name: aws-ip-mgmt
-    image: xxxxxxxxx.dkr.ecr.us-east-1.amazonaws.com/aws-ip-manager:latest
+    image: xxxxxxxxx.dkr.ecr.sa-east-1.amazonaws.com/aws-ip-manager:latest
     imagePullPolicy: IfNotPresent
     args: [/bin/sh, -c, '/app/script.sh initContainers']
 EOF

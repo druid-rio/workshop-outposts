@@ -1,0 +1,394 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Description: A new Management VPC creation for Stage/Prod Account.. This creates VPC, private subnets, Bastion Host, subnet route tables and Security Groups
+
+Metadata:
+  "AWS::CloudFormation::Interface":
+    ParameterGroups:
+      - Label:
+          default: VPC Configuration
+        Parameters:
+          - VpcCidr
+          - AvailabilityZones
+          - MgmtAz1
+          - MgmtAz2
+          - TransitGatewayID
+         
+      - Label:
+          default: Bastion Configuration
+        Parameters:
+          - BastionInstanceType
+          - BastionKeyPairName
+          - LatestAmiId
+Parameters:
+  AvailabilityZones:
+    Description: List of Availability Zones to use for the subnets in the VPC. Select 2 of them.
+    Type: List<AWS::EC2::AvailabilityZone::Name>
+    
+  VpcCidr:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16–28
+    Default: 10.10.0.0/16
+    Description: Internal CIDR range for the VPC.
+    Type: String
+
+  EnableIPv6:
+    Type: String
+    Default: true
+    Description: Enable dual stack for this VPC (true or false).
+
+  TransitGatewayID:
+    Description: central transit gateway shared with this account
+    Type: String
+
+  MgmtAz1:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16–28
+    Default: 10.10.0.0/24
+    Description: CIDR block for the Private Subnet in AZ1. 
+    Type: String
+
+  MgmtAz2:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16–28
+    Default: 10.10.2.0/24
+    Description: CIDR block for the Private Subnet in AZ1. 
+    Type: String
+
+  BastionKeyPairName:
+    Description: Name of an existing key pair, which allows you to securely connect to your instance after it launches.
+    Type: AWS::EC2::KeyPair::KeyName
+
+  BastionInstanceType:
+    Type: String
+    Default: t3.medium
+    Description : Instance type for a bastion host.
+    AllowedValues:
+      - t2.small
+      - t2.medium
+      - t2.large
+      - t3.small
+      - t3.medium
+      - t3.large
+  LatestAmiId:
+      Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+      Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+
+Conditions:
+  # Condition to enable IPv6
+  IncludeIPv6: !Equals
+    - Ref: EnableIPv6
+    - "true"
+
+Resources:
+ # Create VPC with 2 CIDRs
+  Vpc:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub "vpc-${AWS::StackName}"
+
+
+
+  #Create AWS IPv6 block and attach to VPC
+  IPv6CidrBlock:
+    Condition: IncludeIPv6
+    Type: AWS::EC2::VPCCidrBlock
+    Properties:
+      AmazonProvidedIpv6CidrBlock: true
+      VpcId: !Ref Vpc
+
+
+  # Create wait condition
+  VPCReady:
+    Type: AWS::CloudFormation::WaitConditionHandle
+    Metadata:
+      Ipv6CidrReady: !If [ IncludeIPv6, !Ref IPv6CidrBlock, "" ]
+
+  # Create Management Subnets
+  MgmtSubnetAz1:
+    DependsOn:
+      - VPCReady
+    Type: 'AWS::EC2::Subnet'
+    Metadata:
+      Comment: Management subnet in AZ1
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref MgmtAz1
+      AvailabilityZone: !Select ['0', !Ref AvailabilityZones]
+      Ipv6CidrBlock: !If
+        - IncludeIPv6
+        - !Select [10, !Cidr [!Select [0, !GetAtt Vpc.Ipv6CidrBlocks], 16, 64]]     
+        - !Ref AWS::NoValue   
+      Tags:
+        - Key: Name
+          Value: !Sub "MgmtAz1-${AWS::StackName}"
+  MgmtSubnetAz2:
+    DependsOn:
+      - VPCReady
+    Type: 'AWS::EC2::Subnet'
+    Metadata:
+      Comment: Management subnet in AZ2
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref MgmtAz2
+      AvailabilityZone: !Select ['1', !Ref AvailabilityZones]
+      Ipv6CidrBlock: !If
+        - IncludeIPv6
+        - !Select [9, !Cidr [!Select [0, !GetAtt Vpc.Ipv6CidrBlocks], 16, 64]]     
+        - !Ref AWS::NoValue  
+      Tags:
+        - Key: Name
+          Value: !Sub "MgmtAz2-${AWS::StackName}"
+
+
+ # Create the Transit Gateway Attachment VPC
+  VPCTGWAttachment:
+    Type: 'AWS::EC2::TransitGatewayAttachment'
+    Properties:
+      SubnetIds:
+        - !Ref MgmtSubnetAz1
+        - !Ref MgmtSubnetAz2
+      TransitGatewayId: !Ref TransitGatewayID
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Join 
+            - ''
+            - - Management-VPC-Attachment-
+              - !Ref VpcCidr
+
+  # Subnet Route Table for Management Subnets
+  MgmtSubnetRt:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "MgmtSubnetRt-${AWS::StackName}"
+ 
+  MgmtDfltRt:
+    Type: 'AWS::EC2::Route'
+    DependsOn: VPCTGWAttachment 
+    Properties:
+      RouteTableId: !Ref MgmtSubnetRt
+      DestinationCidrBlock: '0.0.0.0/0'
+      TransitGatewayId: !Ref TransitGatewayID
+
+  MgmtAz1RtAssoc:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref MgmtSubnetAz2
+      RouteTableId: !Ref MgmtSubnetRt
+  MgmtAz2RtAssoc:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref MgmtSubnetAz1
+      RouteTableId: !Ref MgmtSubnetRt
+
+
+
+
+### Bastion Host ###
+
+  Ec2bastionIamRole:
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument: 
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: [ec2.amazonaws.com]
+            Action: ['sts:AssumeRole']
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM
+
+
+  Ec2bastionInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties: 
+      Path: /
+      Roles: [!Ref Ec2bastionIamRole]
+
+
+
+  BastionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH access via port 22
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '22'
+        ToPort: '22'
+        CidrIp: '0.0.0.0/0'
+      - IpProtocol: '-1'
+        FromPort: '-1'
+        ToPort: '-1'
+        CidrIp: !Ref VpcCidr
+      Tags:
+        - Key: Name
+          Value: !Sub "bastion-Sg-${AWS::StackName}"
+
+  BastionInstance:
+    DependsOn: 
+      - BastionSecurityGroup
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref BastionInstanceType
+      KeyName: !Ref BastionKeyPairName
+      IamInstanceProfile: !Ref "Ec2bastionInstanceProfile"
+      NetworkInterfaces:
+      - AssociatePublicIpAddress: "false"
+        DeviceIndex: "0"
+        GroupSet:
+          - !Ref BastionSecurityGroup
+        SubnetId: !Ref MgmtSubnetAz1
+      ImageId: !Ref LatestAmiId 
+      UserData: !Base64
+        "Fn::Sub": |
+          #!/bin/bash
+          curl -o kubectl https://s3.us-west-2.amazonaws.com/amazon-eks/1.23.7/2022-06-29/bin/linux/amd64/kubectl
+          chmod +x kubectl
+          mkdir -p $HOME/bin && cp ./kubectl $HOME/bin/kubectl && export PATH=$PATH:$HOME/bin
+          echo 'export PATH=$PATH:$HOME/bin' >> ~/.bashrc
+
+      Tags:
+        - Key: Name
+          Value: !Sub "BastionHost-${AWS::StackName}"
+
+ # ****************************
+  # Here we build all the VPC endpoints needed in order for SSM Session Manager to be able to communicate with
+  # and EC2 instance in a private subnet (with not routes to the Internet)
+
+  # Open port 443 for SSM as per the docs
+  # Incoming connections: https://docs.aws.amazon.com/systems-manager/latest/userguide/sysman-setting-up-vpc.html
+
+  VpcEndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Open 443 for SSM Session Manager for private subnets
+      VpcId: !Ref Vpc
+      # allow traffic on 443 from the private subnets
+      SecurityGroupIngress:
+        - IpProtocol: TCP
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref VpcCidr
+      SecurityGroupEgress:
+        - IpProtocol: -1 # all
+          FromPort: -1 # all
+          ToPort: -1 # all
+          CidrIp: 0.0.0.0/0
+  
+
+
+  VpcEndpointInterfaceSsm:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ssm
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref MgmtSubnetAz1
+        - !Ref MgmtSubnetAz2
+      SecurityGroupIds:
+        - !Ref VpcEndpointSecurityGroup
+  VpcEndpointInterfaceEc2messages:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ec2messages
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref MgmtSubnetAz1
+        - !Ref MgmtSubnetAz2
+      SecurityGroupIds:
+        - !Ref VpcEndpointSecurityGroup
+  VpcEndpointInterfaceEc2:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ec2
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref MgmtSubnetAz1
+        - !Ref MgmtSubnetAz2
+      SecurityGroupIds:
+        - !Ref VpcEndpointSecurityGroup
+  VpcEndpointInterfaceSsmmessages:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ssmmessages
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref MgmtSubnetAz1
+        - !Ref MgmtSubnetAz2
+      SecurityGroupIds:
+        - !Ref VpcEndpointSecurityGroup
+  VpcEndpointGatewayS3:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action:
+              - '*'
+            Resource:
+              - arn:aws:s3:::*       
+      VpcId: !Ref Vpc
+      RouteTableIds:
+        - !Ref MgmtSubnetRt
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+      VpcEndpointType: Gateway
+
+Outputs:
+  VpcId:
+    Description: VPC ID
+    Value: !Ref Vpc
+    Export:
+      Name: !Sub "${AWS::StackName}-VpcId"
+  VpcCidr:
+    Description: VPC CIDR
+    Value: !Ref VpcCidr
+    Export:
+      Name: !Sub "${AWS::StackName}-VpcCidr"
+  MgmtSubnetAz1:
+    Description: Management Subnet at AZ1.
+    Value: !Ref MgmtSubnetAz1
+    Export:
+      Name: !Sub "${AWS::StackName}-MgmtSubnetAz1"
+  MgmtSubnetAz2:
+    Description: Management Subnet at AZ2.
+    Value: !Ref MgmtSubnetAz1
+    Export:
+      Name: !Sub "${AWS::StackName}-MgmtSubnetAz2"
+
+
+  VPCTGWAttachment:
+    Description: VPC Attachment.
+    Value: !Ref VPCTGWAttachment
+    Export:
+      Name: !Sub "${AWS::StackName}-VPCTGWAttachment"
+
+  BastionPrivateIp:
+    Description: BastionHost Private IP
+    Value: !GetAtt BastionInstance.PrivateIp
+    Export:
+      Name: !Sub "${AWS::StackName}-BastionPrivateIp"
+  SessionManagementListUrl:
+    Description: The URL to the Session Management Console listing all instances it is aware of
+    Value: !Sub https://${AWS::Region}.console.aws.amazon.com/systems-manager/session-manager/start-session?region=${AWS::Region}

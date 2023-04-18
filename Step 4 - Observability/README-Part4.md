@@ -48,7 +48,8 @@ Aditionally, you will create an interface VPC endpoint in order to securely and 
 *   Go to CloudFormation console by selecting CloudFormation from Services drop down or by search menu.
     *   Select Create stack, with new resources(standard).
     *   Click Template is ready (default), "Upload a template file", "Choose file". Select "AMP.yaml" file that you have downloaded from this Gitlab.
-    * EKS Cluster:
+    * Stack name -> amp
+    * Parameters:
       * WorkspaceAlias -> The name of the AWS Prometheus Workspace
       * VpcId -> vpc for the eks infrastructure 
       * Subnets -> primaryAZ1 and primaryAZ2(this is for main primary K8s networking network)
@@ -67,7 +68,7 @@ The shell script shown below can be used to execute the following actions after 
 
 ````
 export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
-export AWS_REGION=us-east-1
+export AWS_REGION=sa-east-1
 export CLUSTER_NAME=<<YOUR_EKS_CLUSTER_NAME>>
 export OIDC_PROVIDER=$(aws eks describe-cluster --name $CLUSTER_NAME --query "cluster.identity.oidc.issuer" --output text | sed -e "s/^https:\/\///")
 export EKS_AMP_WORKSPACE_NAME=<<The name/alias of the AWS Prometheus Workspace>>
@@ -190,9 +191,9 @@ serviceAccounts:
                 eks.amazonaws.com/role-arn: "arn:aws:iam::949500376971:role/amp-iamproxy-ingest-role"
 server:
     remoteWrite:
-        - url: https://aps-workspaces.us-east-1.amazonaws.com/workspaces/{YOUR_EKS_AMP_WORKSPACE_ID}/api/v1/remote_write
+        - url: https://aps-workspaces.sa-east-1.amazonaws.com/workspaces/{YOUR_EKS_AMP_WORKSPACE_ID}/api/v1/remote_write
           sigv4:
-            region: us-east-1
+            region: sa-east-1
           queue_config:
             max_samples_per_send: 1000
             max_shards: 200

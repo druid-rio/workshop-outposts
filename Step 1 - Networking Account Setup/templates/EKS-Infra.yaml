@@ -1,0 +1,667 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+# git
+
+Description: A new VPC creation for EKS LandingZone. This creates VPC, public/private subnets, subnet route tables ans Security Groups
+
+Mappings:
+  ServicePrincipals:
+    aws-cn:
+      ec2: ec2.amazonaws.com.cn
+    aws:
+      ec2: ec2.amazonaws.com
+
+Metadata:
+  "AWS::CloudFormation::Interface":
+    ParameterGroups:
+      - Label:
+          default: VPC Configuration
+        Parameters:
+          - VpcCidr
+          - VpcCidr2
+          - AvailabilityZones
+          - PrimarySubnetAz1Cidr
+          - PrimarySubnetAz2Cidr
+          - TransitGatewayID
+      - Label:
+          default: Control UserPlane Network
+        Parameters:
+          - MultusSubnet1Az1Cidr
+          - MultusSubnet1Az2Cidr
+          - MultusSubnet2Az1Cidr
+          - MultusSubnet2Az2Cidr
+      - Label:
+          default: Bastion Configuration
+        Parameters:
+          - BastionVPC
+Parameters:
+  AvailabilityZones:
+    Description: List of Availability Zones to use for the subnets in the VPC. Select 2 of them.
+    Type: List<AWS::EC2::AvailabilityZone::Name>
+    
+  VpcCidr:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16–28
+    Default: 172.20.0.0/16
+    Description:  CIDR range for the VPC (worker node primary subnets)
+    Type: String
+    
+  VpcCidr2:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16–28
+    Default: 172.16.0.0/16
+    Description: The CIDR range for the VPC (multus subnets)
+    Type: String
+    
+  EnableIPv6:
+    Type: String
+    Default: true
+    Description: Enable dual stack for this VPC (true or false).
+    
+  TransitGatewayID:
+    Description: central transit gateway shared with this account
+    Type: String
+
+  PrimarySubnetAz1Cidr:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16–28
+    Default: 172.20.1.0/24
+    Description: CIDR block for the Private Subnet in AZ1. This subnet will be associated to the worker node primary eth0.
+    Type: String
+    
+  PrimarySubnetAz2Cidr:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16–28
+    Default: 172.20.2.0/24
+    Description: CIDR block for the Private Subnet in AZ2. This subnet will be associated to the worker node primary eth0.
+    Type: String
+    
+  MultusSubnet1Az1Cidr:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16–28
+    Default: 172.16.1.0/24
+    Description: CIDR block for the Private Subnet in AZ1. This will be used for Control Plane.
+    Type: String
+  
+  MultusSubnet1Az2Cidr:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16–28
+    Default: 172.16.2.0/24
+    Description: CIDR block for the Private Subnet in AZ2. This will be used for Control Plane.
+    Type: String
+  
+  MultusSubnet2Az1Cidr:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16–28
+    Default: 172.16.3.0/24
+    Description: CIDR block for the Private Subnet in AZ1. This will be used for User Plane.
+    Type: String
+  
+  MultusSubnet2Az2Cidr:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16–28
+    Default: 172.16.4.0/24
+    Description: CIDR block for the Private Subnet in AZ2. This will be used for User Plane.
+    Type: String
+  
+  BastionVPC:
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(1[6-9]|2[0-8]))$
+    ConstraintDescription: CIDR block parameter must be in the form x.x.x.x/16–28
+    Default: 10.10.0.0/16
+    Description: CIDR range for the Management VPC.
+    Type: String
+
+Conditions:
+  # Condition to enable IPv6
+  IncludeIPv6: !Equals
+    - Ref: EnableIPv6
+    - "true"
+
+  VpcCidrSecondaryExists: !Not [!Equals [!Ref VpcCidr2, "" ]]
+
+    
+Resources:
+  # Create VPC with 2 CIDRs
+  Vpc:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub "vpc-${AWS::StackName}"
+          
+  2ndVPCCidr:
+    Type: AWS::EC2::VPCCidrBlock
+    Properties:
+      CidrBlock: !Ref VpcCidr2
+      VpcId: !Ref Vpc
+
+  
+  # Create AWS IPv6 block and attach to VPC
+  IPv6CidrBlock:
+    Condition: IncludeIPv6
+    Type: AWS::EC2::VPCCidrBlock
+    Properties:
+      AmazonProvidedIpv6CidrBlock: true
+      VpcId: !Ref Vpc
+
+  #Create wait condition
+  VPCReady:
+    Type: AWS::CloudFormation::WaitConditionHandle
+    Metadata:
+      Ipv6CidrReady: !If [ IncludeIPv6, !Ref IPv6CidrBlock, "" ]
+
+  VPCReadySecondCIDR:
+    Type: AWS::CloudFormation::WaitConditionHandle
+    Metadata:
+      SecondaryCIDRready: !If [ VpcCidrSecondaryExists, !Ref 2ndVPCCidr, "" ]
+      
+
+  #############################################################################
+  # Subnets
+  # Modify the number of subnets as needed to fit your applications!!!!!!!!
+  #############################################################################
+
+ 
+  # Create Primary Subnets
+  PrimarySubnetAz1:
+    DependsOn:
+      - VPCReady
+      - VPCReadySecondCIDR
+    Type: 'AWS::EC2::Subnet'
+    Metadata:
+      Comment: Private subnet in AZ1 associated to the worker node primary eth0.
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PrimarySubnetAz1Cidr
+      AvailabilityZone: !Select ['0', !Ref AvailabilityZones]
+      AssignIpv6AddressOnCreation: true
+      Ipv6CidrBlock: !If
+        - IncludeIPv6
+        - !Select [10, !Cidr [!Select [0, !GetAtt Vpc.Ipv6CidrBlocks], 16, 64]]     
+        - !Ref AWS::NoValue        
+      Tags:
+        - Key: kubernetes.io/role/internal-elb
+          Value: 1
+        - Key: Name
+          Value: !Sub "primaryAz1-${AWS::StackName}"
+  PrimarySubnetAz2:
+    DependsOn:
+      - VPCReady
+      - VPCReadySecondCIDR
+    Type: 'AWS::EC2::Subnet'
+    Metadata:
+      Comment: Private subnet in AZ2 associated to the worker node primary eth0.
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PrimarySubnetAz2Cidr
+      AvailabilityZone: !Select ['1', !Ref AvailabilityZones]
+      AssignIpv6AddressOnCreation: true
+      Ipv6CidrBlock: !If
+        - IncludeIPv6
+        - !Select [9, !Cidr [!Select [0, !GetAtt Vpc.Ipv6CidrBlocks], 16, 64]]     
+        - !Ref AWS::NoValue     
+      Tags:
+        - Key: kubernetes.io/role/internal-elb
+          Value: 1
+        - Key: Name
+          Value: !Sub "primaryAz2-${AWS::StackName}"
+  # Create Multus-subnets
+  MultusSubnet1Az1:
+    DependsOn:
+      - VPCReady
+      - VPCReadySecondCIDR
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref MultusSubnet1Az1Cidr
+      AvailabilityZone: !Select ['0', !Ref AvailabilityZones]
+      AssignIpv6AddressOnCreation: true
+      Ipv6CidrBlock: !If
+        - IncludeIPv6
+        - !Select [8, !Cidr [!Select [0, !GetAtt Vpc.Ipv6CidrBlocks], 16, 64]]     
+        - !Ref AWS::NoValue     
+      Tags:
+        - Key: Name
+          Value: !Sub "multus1Az1-${AWS::StackName}"
+  MultusSubnet2Az1:
+    DependsOn:
+      - VPCReady
+      - VPCReadySecondCIDR
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref MultusSubnet2Az1Cidr
+      AvailabilityZone: !Select ['0', !Ref AvailabilityZones]
+      AssignIpv6AddressOnCreation: true
+      Ipv6CidrBlock: !If
+        - IncludeIPv6
+        - !Select [7, !Cidr [!Select [0, !GetAtt Vpc.Ipv6CidrBlocks], 16, 64]]     
+        - !Ref AWS::NoValue     
+      Tags:
+        - Key: Name
+          Value: !Sub "multus2Az1-${AWS::StackName}"
+  MultusSubnet1Az2:
+    DependsOn:
+      - VPCReady
+      - VPCReadySecondCIDR
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref MultusSubnet1Az2Cidr
+      AvailabilityZone: !Select ['1', !Ref AvailabilityZones]
+      AssignIpv6AddressOnCreation: true
+      Ipv6CidrBlock: !If
+        - IncludeIPv6
+        - !Select [6, !Cidr [!Select [0, !GetAtt Vpc.Ipv6CidrBlocks], 16, 64]]     
+        - !Ref AWS::NoValue     
+      Tags:
+        - Key: Name
+          Value: !Sub "multus1Az2-${AWS::StackName}"
+  MultusSubnet2Az2:
+    DependsOn:
+      - VPCReady
+      - VPCReadySecondCIDR
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref MultusSubnet2Az2Cidr
+      AvailabilityZone: !Select ['1', !Ref AvailabilityZones]
+      AssignIpv6AddressOnCreation: true
+      Ipv6CidrBlock: !If
+        - IncludeIPv6
+        - !Select [5, !Cidr [!Select [0, !GetAtt Vpc.Ipv6CidrBlocks], 16, 64]]     
+        - !Ref AWS::NoValue     
+      Tags:
+        - Key: Name
+          Value: !Sub "multus2Az2-${AWS::StackName}"
+ 
+  # Create the Transit Gateway Attachment VPC
+  VPCTGWAttachment:
+    Type: 'AWS::EC2::TransitGatewayAttachment'
+    Properties:
+      SubnetIds:
+        - !Ref PrimarySubnetAz1
+        - !Ref PrimarySubnetAz2
+      TransitGatewayId: !Ref TransitGatewayID
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Join 
+            - ''
+            - - VPCAttachment-
+              - !Ref VpcCidr
+
+  # Subnet Route Table for Primary Subnets
+  PrimaryAz1SubnetRt:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "primaryAz1SubnetRt-${AWS::StackName}"
+  PrimaryAz2SubnetRt:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "primaryAz2SubnetRt-${AWS::StackName}"
+  PrimaryAz1DfltRt:
+    Type: 'AWS::EC2::Route'
+    DependsOn: VPCTGWAttachment 
+    Properties:
+      RouteTableId: !Ref PrimaryAz1SubnetRt
+      DestinationCidrBlock: '0.0.0.0/0'
+      TransitGatewayId: !Ref TransitGatewayID
+  PrimaryAz2DfltRt:
+    Type: 'AWS::EC2::Route'
+    DependsOn: VPCTGWAttachment 
+    Properties:
+      RouteTableId: !Ref PrimaryAz2SubnetRt
+      DestinationCidrBlock: '0.0.0.0/0'
+      TransitGatewayId: !Ref TransitGatewayID
+
+  PrimaryAz1RtAssoc:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref PrimarySubnetAz1
+      RouteTableId: !Ref PrimaryAz1SubnetRt
+  PrimaryAz2RtAssoc:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref PrimarySubnetAz2
+      RouteTableId: !Ref PrimaryAz2SubnetRt
+
+  # Subnet Route Table for Multus Subnets
+  MultusSubnetRt:
+    DependsOn:
+      - Vpc
+      - MultusSubnet1Az1
+      - MultusSubnet1Az2
+      - MultusSubnet2Az1
+      - MultusSubnet2Az2
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "multusSubnetRt-${AWS::StackName}"
+ 
+  Multus1AZ1RtAssoc:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref MultusSubnet1Az1
+      RouteTableId: !Ref MultusSubnetRt
+  Multus2AZ1RtAssoc:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref MultusSubnet2Az1
+      RouteTableId: !Ref MultusSubnetRt
+  Multus1AZ2RtAssoc:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref MultusSubnet1Az2
+      RouteTableId: !Ref MultusSubnetRt
+  Multus2AZ2RtAssoc:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref MultusSubnet2Az2
+      RouteTableId: !Ref MultusSubnetRt
+
+
+
+
+  # Security group for primary subnet
+  SubnetSecurityGroup:
+    DependsOn:
+      - VPCReady
+      - VPCReadySecondCIDR
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: primary subnet security group
+      GroupDescription: Allows VPC traffic
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - CidrIp: !Ref VpcCidr
+          IpProtocol: -1
+          FromPort: 0
+          ToPort: 65535
+        - !If
+          - IncludeIPv6
+          - CidrIpv6: !Select [ 0, !GetAtt Vpc.Ipv6CidrBlocks ]
+            IpProtocol: -1
+            FromPort: 0
+            ToPort: 65535
+          - !Ref AWS::NoValue
+        - CidrIp: !Ref VpcCidr2
+          IpProtocol: -1
+          FromPort: 0
+          ToPort: 65535
+        - CidrIp: !Ref BastionVPC
+          IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-PrimarySubnetSecurityGroup"
+
+  # Create Multus Security Group
+  MultusSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security Group for Multus Subnets
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+      - IpProtocol: '-1'
+        FromPort: '-1'
+        ToPort: '-1'
+        CidrIp: !Ref VpcCidr
+      - IpProtocol: 'udp'
+        FromPort: '2123'
+        ToPort: '2123'
+        CidrIp: '0.0.0.0/0'
+      - IpProtocol: 'udp'
+        FromPort: '2152'
+        ToPort: '2152'
+        CidrIp: '0.0.0.0/0'
+      - IpProtocol: 'udp'
+        FromPort: '8805'
+        ToPort: '8805'
+        CidrIp: '0.0.0.0/0'
+      - IpProtocol: '132'
+        FromPort: '3868'
+        ToPort: '3868'
+        CidrIp: '0.0.0.0/0'
+      - IpProtocol: '132'
+        FromPort: '36412'
+        ToPort: '36412'
+        CidrIp: '0.0.0.0/0'
+      Tags:
+        - Key: Name
+          Value: !Sub "multus-Sg-${AWS::StackName}"
+
+  # Security group used for Interface VPC Endpoints
+  VpcEndpointsSecurityGroup:
+    DependsOn:
+      - VPCReady
+      - VPCReadySecondCIDR
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: VPC Endpoints security group
+      GroupDescription: Allows HTTPS traffic
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        #        - CidrIp: 0.0.0.0/0
+        #          IpProtocol: tcp
+        #          FromPort: 443
+        #          ToPort: 443
+        #        - !If
+        #          - IncludeIPv6
+        #          - CidrIpv6: ::/0
+        #            IpProtocol: tcp
+        #            FromPort: 443
+        #            ToPort: 443
+        #          - !Ref AWS::NoValue
+        - CidrIp: !Ref VpcCidr
+          IpProtocol: -1
+          FromPort: 0
+          ToPort: 65535
+        - !If
+          - IncludeIPv6
+          - CidrIpv6: !Select [ 0, !GetAtt Vpc.Ipv6CidrBlocks ]
+            IpProtocol: -1
+            FromPort: 0
+            ToPort: 65535
+          - !Ref AWS::NoValue
+        - CidrIp: !Ref VpcCidr2
+          IpProtocol: -1
+          FromPort: 0
+          ToPort: 65535
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-VpcEndpointsSecurityGroup"
+   #############################################################################
+  # Interface VPC Endpoints for platform to communicate with AWS API controller
+  # ec2, s3, ecr.dkr, ecr.api, autoscaling, elasticloadbalancing, and kms
+  # Most likely there is no need to modify this section
+  #############################################################################
+  Ec2VpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      PrivateDnsEnabled: true
+      SecurityGroupIds:
+        - !Ref VpcEndpointsSecurityGroup
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ec2
+      SubnetIds:
+        - !Ref PrimarySubnetAz1
+        - !Ref PrimarySubnetAz2
+      VpcEndpointType: Interface
+      VpcId: !Ref Vpc
+
+  EcrApiVpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      PrivateDnsEnabled: true
+      SecurityGroupIds:
+        - !Ref VpcEndpointsSecurityGroup
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ecr.api
+      SubnetIds:
+        - !Ref PrimarySubnetAz1
+        - !Ref PrimarySubnetAz2
+      VpcEndpointType: Interface
+      VpcId: !Ref Vpc
+
+  EcrDkrVpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      PrivateDnsEnabled: true
+      SecurityGroupIds:
+        - !Ref VpcEndpointsSecurityGroup
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ecr.dkr
+      SubnetIds:
+        - !Ref PrimarySubnetAz1
+        - !Ref PrimarySubnetAz2
+      VpcEndpointType: Interface
+      VpcId: !Ref Vpc
+
+  S3VpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+      RouteTableIds:
+        - Ref: PrimaryAz1SubnetRt
+        - Ref: PrimaryAz2SubnetRt
+      VpcEndpointType: Gateway
+      VpcId: !Ref Vpc
+
+  LogsVpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      PrivateDnsEnabled: true
+      SecurityGroupIds:
+        - !Ref VpcEndpointsSecurityGroup
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.logs
+      SubnetIds:
+        - !Ref PrimarySubnetAz1
+        - !Ref PrimarySubnetAz2
+      VpcEndpointType: Interface
+      VpcId: !Ref Vpc
+
+  StsVpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      PrivateDnsEnabled: true
+      SecurityGroupIds:
+        - !Ref VpcEndpointsSecurityGroup
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.sts
+      SubnetIds:
+        - !Ref PrimarySubnetAz1
+        - !Ref PrimarySubnetAz2
+      VpcEndpointType: Interface
+      VpcId: !Ref Vpc
+
+  ElasticLoadBalancingVpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      PrivateDnsEnabled: true
+      SecurityGroupIds:
+        - !Ref VpcEndpointsSecurityGroup
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.elasticloadbalancing
+      SubnetIds:
+        - !Ref PrimarySubnetAz1
+        - !Ref PrimarySubnetAz2
+      VpcEndpointType: Interface
+      VpcId: !Ref Vpc
+
+  AutoscalingVpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      PrivateDnsEnabled: true
+      SecurityGroupIds:
+        - !Ref VpcEndpointsSecurityGroup
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.autoscaling
+      SubnetIds:
+        - !Ref PrimarySubnetAz1
+        - !Ref PrimarySubnetAz2
+      VpcEndpointType: Interface
+      VpcId: !Ref Vpc
+  
+Outputs:
+  VpcId:
+    Description: VPC ID
+    Value: !Ref Vpc
+    Export:
+      Name: !Sub "${AWS::StackName}-VpcId"
+  VpcCidr:
+    Description: VPC CIDR
+    Value: !Ref VpcCidr
+    Export:
+      Name: !Sub "${AWS::StackName}-VpcCidr"
+  VpcCidr2:
+    Description: The 2nd VPC IPv4 CIDR
+    Value: !Ref VpcCidr2
+    Export:
+      Name: !Sub "${AWS::StackName}-VpcCidr2"
+  VpcIpv6Cidr:
+    Description: The VPC IPv6 CIDR
+    Value: !Join [ ",", !GetAtt Vpc.Ipv6CidrBlocks ]
+    Export:
+      Name: !Sub "${AWS::StackName}-VpcIpv6Cidr"
+    Condition: IncludeIPv6
+  PrimarySubnetAz1:
+    Description: EKS WorkerNode PrimarySubnet at AZ1. This will be used for K8s default networking.
+    Value: !Ref PrimarySubnetAz1
+    Export:
+      Name: !Sub "${AWS::StackName}-PrimarySubnetAz1"
+  PrimarySubnetAz2:
+    Description: EKS WorkerNode PrimarySubnet at AZ2. This will be used for K8s default networking.
+    Value: !Ref PrimarySubnetAz2
+    Export:
+      Name: !Sub "${AWS::StackName}-PrimarySubnetAz2"
+  MultusSubnet1Az1:
+    Description: EKS WorkerNode MultusSubnet1 (e.g. Signaling) at AZ1. This will be used for Multus interface (control-plane).
+    Value: !Ref MultusSubnet1Az1
+    Export:
+      Name: !Sub "${AWS::StackName}-MultusSubnet1Az1"
+  MultusSubnet2Az1:
+    Description: EKS WorkerNode MultusSubnet2 (e.g. UserPlane) at AZ1. This will be used for Multus interface (user-plane).
+    Value: !Ref MultusSubnet2Az1
+    Export:
+      Name: !Sub "${AWS::StackName}-MultusSubnet2Az1"
+  MultusSubnet1Az2:
+    Description: EKS WorkerNode MultusSubnet1 (e.g. Signaling) at AZ2. This will be used for Multus interface (control-plane).
+    Value: !Ref MultusSubnet1Az2
+    Export:
+      Name: !Sub "${AWS::StackName}-MultusSubnet1Az2"
+  MultusSubnet2Az2:
+    Description: EKS WorkerNode MultusSubnet2 (e.g. UserPlane) at AZ2. This will be used for Multus interface (user-plane).
+    Value: !Ref MultusSubnet2Az2
+    Export:
+      Name: !Sub "${AWS::StackName}-MultusSubnet2Az2"
+  MultusSecurityGroup:
+    Description: EKS WorkerNode SecurityGroup for Multus Subnets.
+    Value: !Ref MultusSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-MultusSecurityGroup"
+  BastionVPC:
+    Description: Management VPC for the bastion host
+    Value: !Ref BastionVPC
+    Export:
+      Name: !Sub "${AWS::StackName}-BastionVPC"
+  PrimarySubnetSecurityGroupId:
+    Description: Primary subnet security group Id
+    Value: !Ref SubnetSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnetSecurityGroup"
+  VPCTGWAttachment:
+    Description: Attachment ID of management VPC to Transit Gateway
+    Value: !Ref VPCTGWAttachment
+  EKSClusterSubnets:
+   Description: Subnets used by cluster
+   Value: !Join [ ',', [!Ref PrimarySubnetAz1, !Ref PrimarySubnetAz2] ]
+   Export:
+     Name: !Sub "${AWS::StackName}-EKSClusterSubnets"
